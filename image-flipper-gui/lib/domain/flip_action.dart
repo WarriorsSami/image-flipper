@@ -1,0 +1,4 @@
+enum FlipAction {
+  horizontal,
+  vertical,
+}
