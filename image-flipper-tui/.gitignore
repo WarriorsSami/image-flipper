@@ -22,6 +22,6 @@
 # vendor/
 
 # Go workspace file
-go.work
+# go.work
 
 # End of https://www.toptal.com/developers/gitignore/api/go
