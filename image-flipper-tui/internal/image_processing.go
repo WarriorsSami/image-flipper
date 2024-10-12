@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"fmt"
 	"github.com/anthonynsimon/bild/imgio"
 	"github.com/anthonynsimon/bild/transform"
 	"image"
@@ -31,7 +32,7 @@ type Image struct {
 	path      string
 	name      string
 	extension ImgExtension
-	image     *image.RGBA
+	image     *image.Image
 }
 
 func NewImageMeta(path string) *Image {
@@ -78,19 +79,18 @@ func isImageFile(path string) bool {
 	}
 }
 
-func ReadAllImagesInFolder(ctx context.Context, folderPath string) (<-chan *Image, <-chan error) {
+func ReadAllImagesInFolder(ctx context.Context, folderPath string) (<-chan *Image, chan error) {
 	readImgChan := make(chan *Image)
-	errorChan := make(chan error)
+	errChan := make(chan error)
 	var wg sync.WaitGroup
 
 	go func() {
 		defer close(readImgChan)
-		defer close(errorChan)
 
 		files, err := filepath.Glob(folderPath + "/*")
 		if err != nil {
-			errorChan <- err
-			ctx.Done()
+			errChan <- err
+			defer ctx.Value("cancel").(context.CancelFunc)()
 			return
 		}
 
@@ -102,64 +102,92 @@ func ReadAllImagesInFolder(ctx context.Context, folderPath string) (<-chan *Imag
 			wg.Add(1)
 			go func(file string) {
 				defer wg.Done()
-				img := NewImageMeta(file)
-				img, err := readImage(img)
-				if err != nil {
-					errorChan <- err
+				select {
+				case <-ctx.Done():
 					return
+				default:
+					img := NewImageMeta(file)
+					img, err := readImage(img)
+					if err != nil {
+						errChan <- err
+						return
+					}
+
+					fmt.Println("Read image:", img.name)
+					readImgChan <- img
 				}
-				readImgChan <- img
 			}(file)
 		}
 
 		wg.Wait()
 	}()
 
-	return readImgChan, errorChan
+	return readImgChan, errChan
 }
 
-func FlipImages(ctx context.Context, images <-chan *Image, errChan chan error, direction FlipDirection) (<-chan *Image, <-chan error) {
+func FlipImages(ctx context.Context, images <-chan *Image, errChan chan error, direction FlipDirection) (<-chan *Image, chan error) {
 	flippedImgChan := make(chan *Image)
 	var wg sync.WaitGroup
 
 	go func() {
 		defer close(flippedImgChan)
+
 		for img := range images {
 			wg.Add(1)
 			go func(img *Image) {
 				defer wg.Done()
-				flippedImg, err := flipImage(img, direction)
-				if err != nil {
-					errChan <- err
-					return
-				}
-				flippedImgChan <- flippedImg
-			}(img)
-		}
-	}()
-	return flippedImgChan, errChan
-}
 
-func WriteImagesToFolder(ctx context.Context, images <-chan *Image, errChan chan error, folderPath string) <-chan error {
-	errorChan := make(chan error)
-	var wg sync.WaitGroup
-
-	go func() {
-		defer close(errorChan)
-		for img := range images {
-			wg.Add(1)
-			go func(img *Image) {
-				defer wg.Done()
-				if err := writeImage(img); err != nil {
-					errorChan <- err
+				select {
+				case <-ctx.Done():
 					return
+				default:
+					flippedImg, err := flipImage(img, direction)
+					if err != nil {
+						errChan <- err
+						return
+					}
+
+					fmt.Println("Flipped image:", img.name)
+					flippedImgChan <- flippedImg
 				}
 			}(img)
 		}
+
 		wg.Wait()
 	}()
 
-	return errorChan
+	return flippedImgChan, errChan
+}
+
+func WriteImagesToFolder(ctx context.Context, images <-chan *Image, errChan chan error, outputFolderPath string) <-chan error {
+	var wg sync.WaitGroup
+
+	go func() {
+		defer close(errChan)
+		defer ctx.Value("cancel").(context.CancelFunc)()
+
+		for img := range images {
+			wg.Add(1)
+			go func(img *Image) {
+				defer wg.Done()
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					if err := writeImage(img, outputFolderPath); err != nil {
+						errChan <- err
+						return
+					}
+
+					fmt.Println("Wrote image:", img.name)
+				}
+			}(img)
+		}
+
+		wg.Wait()
+	}()
+
+	return errChan
 }
 
 func readImage(img *Image) (*Image, error) {
@@ -167,7 +195,7 @@ func readImage(img *Image) (*Image, error) {
 	if err != nil {
 		return nil, err
 	}
-	img.image = imgRaw.(*image.RGBA)
+	img.image = &imgRaw
 
 	return img, nil
 }
@@ -176,20 +204,27 @@ func flipImage(img *Image, direction FlipDirection) (*Image, error) {
 	var flippedImage *image.RGBA
 	switch direction {
 	case FlipHorizontal:
-		flippedImage = transform.FlipH(img.image)
+		flippedImage = transform.FlipH(*img.image)
 	case FlipVertical:
-		flippedImage = transform.FlipV(img.image)
+		flippedImage = transform.FlipV(*img.image)
 	case FlipBoth:
-		flippedImage = transform.FlipH(img.image)
+		flippedImage = transform.FlipH(*img.image)
 		flippedImage = transform.FlipV(flippedImage)
 	}
 
-	img.image = flippedImage
+	if flippedImage == nil {
+		return nil, fmt.Errorf("error flipping image")
+	}
+
+	newImg := flippedImage.SubImage(flippedImage.Bounds())
+	img.image = &newImg
+
 	return img, nil
 }
 
-func writeImage(img *Image) error {
-	err := imgio.Save(img.path, img.image, img.GetImageEncoder())
+func writeImage(img *Image, outputFolderPath string) error {
+	outputPath := filepath.Join(outputFolderPath, img.name)
+	err := imgio.Save(outputPath, *img.image, img.GetImageEncoder())
 	if err != nil {
 		return err
 	}
