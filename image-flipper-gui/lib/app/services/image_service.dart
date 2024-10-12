@@ -38,16 +38,9 @@ class ImageService implements IImageService {
     }
 
     for (final image in images) {
-      final flipDir = switch (action) {
-        FlipAction.horizontal => img.FlipDirection.horizontal,
-        FlipAction.vertical => img.FlipDirection.vertical,
-        FlipAction.both => img.FlipDirection.both,
-        _ => throw Exception('Invalid flip action'),
-      };
-
       final cmd = img.Command()
         ..decodeImageFile(image.path)
-        ..copyFlip(direction: flipDir)
+        ..copyFlip(direction: action.flipDirection)
         ..writeToFile(path.join(outputDir, image.name));
 
       await cmd.executeThread();

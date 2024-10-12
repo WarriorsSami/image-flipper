@@ -13,14 +13,7 @@ class FlipperCubit extends Cubit<FlipperState> {
     try {
       emit(FlipperLoadFolderInProgress());
 
-      final selectedFolder = await FilePicker.platform.getDirectoryPath(
-        dialogTitle: 'Select a folder',
-      );
-
-      if (selectedFolder == null) {
-        emit(FlipperError(message: 'No folder selected'));
-        return;
-      }
+      final selectedFolder = await _pickFolder();
 
       emit(
         FlipperLoadFolderSuccess(
@@ -60,14 +53,7 @@ class FlipperCubit extends Cubit<FlipperState> {
         return;
       }
 
-      final selectedFolder = await FilePicker.platform.getDirectoryPath(
-        dialogTitle: 'Select a folder',
-      );
-
-      if (selectedFolder == null) {
-        emit(FlipperError(message: 'No folder selected'));
-        return;
-      }
+      final selectedFolder = await _pickFolder();
 
       switch (state) {
         case FlipperPreviewFlipImagesSuccess(:final images, :final action):
@@ -97,5 +83,18 @@ class FlipperCubit extends Cubit<FlipperState> {
 
   void discardSelectedImages() {
     emit(FlipperInitial());
+  }
+
+  Future<String> _pickFolder() async {
+    final selectedFolder = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: 'Select a folder',
+    );
+
+    if (selectedFolder == null) {
+      emit(FlipperError(message: 'No folder selected'));
+      return '';
+    }
+
+    return selectedFolder;
   }
 }
