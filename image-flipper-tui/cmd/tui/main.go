@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	imageFolderPath, outputFolderPath := "/home/sami/Pictures/", "/home/sami/Pictures/output/"
+	imageFolderPath, outputFolderPath := "/home/samibarbutdica/Pictures/Flipper/", "/home/samibarbutdica/Pictures/Flipper/Output/"
 	flipDir := imgproc.FlipHorizontal
 	ctx := context.Background()
 

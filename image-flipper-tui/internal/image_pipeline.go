@@ -3,28 +3,27 @@ package internal
 import (
 	"context"
 	"fmt"
+	"golang.org/x/sync/errgroup"
 	"log"
 	"path/filepath"
 	"strings"
 	"sync"
 )
 
-func readAllImagesFromFolder(ctx context.Context, done chan struct{}, folderPath string) (<-chan *Image, chan error) {
+func runReadAllImagesFromFolderStage(ctx context.Context, g *errgroup.Group, folderPath string) <-chan *Image {
 	readImgChan := make(chan *Image)
-	errChan := make(chan error)
 	var wg sync.WaitGroup
 
-	go func() {
+	g.Go(func() error {
 		defer close(readImgChan)
 
-		// TODO: refactor using filepath.Walk
-		files, err := filepath.Glob(folderPath + "/*")
+		files, err := filepath.Glob(folderPath + "/*[.png|.jpg|.jpeg|.bmp]")
 		if err != nil {
-			errChan <- err
-			done <- struct{}{}
-			return
+			return err
 		}
 
+		errChan := make(chan error)
+		defer close(errChan)
 		for _, file := range files {
 			if !isImageFile(file) {
 				continue
@@ -35,7 +34,6 @@ func readAllImagesFromFolder(ctx context.Context, done chan struct{}, folderPath
 				defer wg.Done()
 				select {
 				case <-ctx.Done():
-				case <-done:
 					return
 				default:
 					img := NewImage(file)
@@ -49,20 +47,30 @@ func readAllImagesFromFolder(ctx context.Context, done chan struct{}, folderPath
 				}
 			}(file)
 		}
-
 		wg.Wait()
-	}()
 
-	return readImgChan, errChan
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case err := <-errChan:
+			return err
+		default:
+			return nil
+		}
+	})
+
+	return readImgChan
 }
 
-func flipImages(ctx context.Context, done <-chan struct{}, images <-chan *Image, errChan chan error, direction FlipDirection) (<-chan *Image, chan error) {
+func runFlipImagesStage(ctx context.Context, g *errgroup.Group, images <-chan *Image, direction FlipDirection) <-chan *Image {
 	flippedImgChan := make(chan *Image)
 	var wg sync.WaitGroup
 
-	go func() {
+	g.Go(func() error {
 		defer close(flippedImgChan)
 
+		errChan := make(chan error)
+		defer close(errChan)
 		for img := range images {
 			wg.Add(1)
 			go func(img *Image) {
@@ -70,7 +78,6 @@ func flipImages(ctx context.Context, done <-chan struct{}, images <-chan *Image,
 
 				select {
 				case <-ctx.Done():
-				case <-done:
 					return
 				default:
 					flippedImg, err := flipImage(img, direction)
@@ -83,31 +90,36 @@ func flipImages(ctx context.Context, done <-chan struct{}, images <-chan *Image,
 				}
 			}(img)
 		}
-
 		wg.Wait()
-	}()
 
-	return flippedImgChan, errChan
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case err := <-errChan:
+			return err
+		default:
+			return nil
+		}
+	})
+
+	return flippedImgChan
 }
 
-func writeImagesToFolder(ctx context.Context, done chan struct{}, images <-chan *Image, errChan chan error, outputFolderPath string) (<-chan *Image, <-chan error) {
+func runWriteImagesToFolderStage(ctx context.Context, g *errgroup.Group, images <-chan *Image, outputFolderPath string) <-chan *Image {
 	writtenImgChan := make(chan *Image)
 	var wg sync.WaitGroup
 
-	go func() {
+	g.Go(func() error {
 		defer close(writtenImgChan)
-		defer close(errChan)
-		defer func() {
-			done <- struct{}{}
-		}()
 
+		errChan := make(chan error)
+		defer close(errChan)
 		for img := range images {
 			wg.Add(1)
 			go func(img *Image) {
 				defer wg.Done()
 				select {
 				case <-ctx.Done():
-				case <-done:
 					return
 				default:
 					if err := writeImage(img, outputFolderPath); err != nil {
@@ -119,59 +131,42 @@ func writeImagesToFolder(ctx context.Context, done chan struct{}, images <-chan 
 				}
 			}(img)
 		}
-
 		wg.Wait()
-	}()
 
-	return writtenImgChan, errChan
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case err := <-errChan:
+			return err
+		default:
+			return nil
+		}
+	})
+
+	return writtenImgChan
 }
 
-// TODO: refactor using errgroup
 func RunProcessImagesPipeline(ctx context.Context, inputImagesFolderPath, outputImagesFolderPath string, direction FlipDirection) (string, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	g, ctx := errgroup.WithContext(ctx)
 
-	done := make(chan struct{})
+	readImagesChan := runReadAllImagesFromFolderStage(ctx, g, inputImagesFolderPath)
+	flippedImagesChan := runFlipImagesStage(ctx, g, readImagesChan, direction)
+	writtenImagesChan := runWriteImagesToFolderStage(ctx, g, flippedImagesChan, outputImagesFolderPath)
 
-	readImagesChan, readErrChan := readAllImagesFromFolder(ctx, done, inputImagesFolderPath)
-	flippedImagesChan, flipErrChan := flipImages(ctx, done, readImagesChan, readErrChan, FlipVertical)
-	writtenImagesChan, writeErrChan := writeImagesToFolder(ctx, done, flippedImagesChan, flipErrChan, outputImagesFolderPath)
+	var successMsgs strings.Builder
 
-	var (
-		successMsgs strings.Builder
-		errMsgs     strings.Builder
-	)
-
-	for {
-		select {
-		case img := <-writtenImagesChan:
-			if img != nil {
-				log.Println("Wrote image:", img.ToShortString())
-			}
-			successMsgs.WriteString(fmt.Sprintf("Wrote image: %s\n", img.ToShortString()))
-		case err := <-writeErrChan:
-			if err != nil {
-				log.Println("Error writing image:", err)
-			}
-			errMsgs.WriteString(fmt.Sprintf("Error writing image: %s\n", err))
-		case <-done:
-			log.Println("Done processing images")
-			close(done)
-
-			successMsgs.WriteString("Done processing images\n")
-			if errMsgs.Len() == 0 {
-				return successMsgs.String(), nil
-			}
-			return successMsgs.String(), fmt.Errorf(errMsgs.String())
-		case <-ctx.Done():
-			log.Println("Processing images cancelled")
-			close(done)
-
-			successMsgs.WriteString("Processing images cancelled\n")
-			if errMsgs.Len() == 0 {
-				return successMsgs.String(), nil
-			}
-			return successMsgs.String(), fmt.Errorf(errMsgs.String())
+	g.Go(func() error {
+		for img := range writtenImagesChan {
+			successMsgs.WriteString(fmt.Sprintf("Successfully processed image %s\n", img.name))
 		}
+
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
+		log.Println("Error processing images:", err)
+		return "", err
 	}
+
+	return successMsgs.String(), nil
 }
