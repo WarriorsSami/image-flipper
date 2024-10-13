@@ -43,6 +43,7 @@ func runReadAllImagesFromFolderStage(ctx context.Context, g *errgroup.Group, fol
 						return
 					}
 
+					log.Println("Read image:", img.name)
 					readImgChan <- img
 				}
 			}(file)
@@ -86,6 +87,7 @@ func runFlipImagesStage(ctx context.Context, g *errgroup.Group, images <-chan *I
 						return
 					}
 
+					log.Println("Flipped image:", img.name)
 					flippedImgChan <- flippedImg
 				}
 			}(img)
@@ -127,6 +129,7 @@ func runWriteImagesToFolderStage(ctx context.Context, g *errgroup.Group, images 
 						return
 					}
 
+					log.Println("Wrote image:", img.name)
 					writtenImgChan <- img
 				}
 			}(img)
@@ -159,6 +162,7 @@ func RunProcessImagesPipeline(ctx context.Context, inputImagesFolderPath, output
 		for img := range writtenImagesChan {
 			successMsgs.WriteString(fmt.Sprintf("Successfully processed image %s\n", img.name))
 		}
+		successMsgs.WriteString("All images processed successfully")
 
 		return nil
 	})
