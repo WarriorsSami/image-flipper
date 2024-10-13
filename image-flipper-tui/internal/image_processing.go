@@ -1,13 +1,11 @@
 package internal
 
 import (
-	"context"
 	"fmt"
 	"github.com/anthonynsimon/bild/imgio"
 	"github.com/anthonynsimon/bild/transform"
 	"image"
 	"path/filepath"
-	"sync"
 )
 
 // FlipDirection - enum for image flip direction
@@ -123,120 +121,4 @@ func writeImage(img *Image, outputFolderPath string) error {
 	}
 
 	return nil
-}
-
-func ReadAllImagesInFolder(ctx context.Context, done chan struct{}, folderPath string) (<-chan *Image, chan error) {
-	readImgChan := make(chan *Image)
-	errChan := make(chan error)
-	var wg sync.WaitGroup
-
-	go func() {
-		defer close(readImgChan)
-
-		files, err := filepath.Glob(folderPath + "/*")
-		if err != nil {
-			errChan <- err
-			done <- struct{}{}
-			return
-		}
-
-		for _, file := range files {
-			if !isImageFile(file) {
-				continue
-			}
-
-			wg.Add(1)
-			go func(file string) {
-				defer wg.Done()
-				select {
-				case <-ctx.Done():
-				case <-done:
-					return
-				default:
-					img := NewImage(file)
-					img, err := readImage(img)
-					if err != nil {
-						errChan <- err
-						return
-					}
-
-					readImgChan <- img
-				}
-			}(file)
-		}
-
-		wg.Wait()
-	}()
-
-	return readImgChan, errChan
-}
-
-func FlipImages(ctx context.Context, done <-chan struct{}, images <-chan *Image, errChan chan error, direction FlipDirection) (<-chan *Image, chan error) {
-	flippedImgChan := make(chan *Image)
-	var wg sync.WaitGroup
-
-	go func() {
-		defer close(flippedImgChan)
-
-		for img := range images {
-			wg.Add(1)
-			go func(img *Image) {
-				defer wg.Done()
-
-				select {
-				case <-ctx.Done():
-				case <-done:
-					return
-				default:
-					flippedImg, err := flipImage(img, direction)
-					if err != nil {
-						errChan <- err
-						return
-					}
-
-					flippedImgChan <- flippedImg
-				}
-			}(img)
-		}
-
-		wg.Wait()
-	}()
-
-	return flippedImgChan, errChan
-}
-
-func WriteImagesToFolder(ctx context.Context, done chan struct{}, images <-chan *Image, errChan chan error, outputFolderPath string) (<-chan *Image, <-chan error) {
-	writtenImgChan := make(chan *Image)
-	var wg sync.WaitGroup
-
-	go func() {
-		defer close(writtenImgChan)
-		defer close(errChan)
-		defer func() {
-			done <- struct{}{}
-		}()
-
-		for img := range images {
-			wg.Add(1)
-			go func(img *Image) {
-				defer wg.Done()
-				select {
-				case <-ctx.Done():
-				case <-done:
-					return
-				default:
-					if err := writeImage(img, outputFolderPath); err != nil {
-						errChan <- err
-						return
-					}
-
-					writtenImgChan <- img
-				}
-			}(img)
-		}
-
-		wg.Wait()
-	}()
-
-	return writtenImgChan, errChan
 }
