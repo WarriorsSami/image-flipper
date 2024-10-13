@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"errors"
 	"fmt"
 	"github.com/anthonynsimon/bild/imgio"
 	"github.com/anthonynsimon/bild/transform"
@@ -25,6 +26,38 @@ const (
 	JPEG
 	BMP
 )
+
+func (f *FlipDirection) String() string {
+	switch *f {
+	case FlipHorizontal:
+		return "horizontal"
+	case FlipVertical:
+		return "vertical"
+	case FlipBoth:
+		return "both"
+	default:
+		return "unknown"
+	}
+}
+
+func (f *FlipDirection) Set(value string) error {
+	switch value {
+	case "horizontal":
+		*f = FlipHorizontal
+	case "vertical":
+		*f = FlipVertical
+	case "both":
+		*f = FlipBoth
+	default:
+		return errors.New("invalid flip direction")
+	}
+
+	return nil
+}
+
+func (f *FlipDirection) Type() string {
+	return "string"
+}
 
 type Image struct {
 	path      string
@@ -104,7 +137,7 @@ func flipImage(img *Image, direction FlipDirection) (*Image, error) {
 	}
 
 	if flippedImage == nil {
-		return nil, fmt.Errorf("error flipping image")
+		return nil, errors.New("error flipping image")
 	}
 
 	newImg := flippedImage.SubImage(flippedImage.Bounds())
@@ -121,4 +154,12 @@ func writeImage(img *Image, outputFolderPath string) error {
 	}
 
 	return nil
+}
+
+func CheckIfFolderExists(folderPath string) (bool, error) {
+	if _, err := filepath.Abs(folderPath); err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
