@@ -9,20 +9,27 @@ import (
 func main() {
 	imageFolderPath, outputFolderPath := "/home/sami/Pictures/", "/home/sami/Pictures/output/"
 	ctx, cancel := context.WithCancel(context.Background())
-	ctx = context.WithValue(ctx, "cancel", cancel)
+	defer cancel()
 
-	images, errChan := imgproc.ReadAllImagesInFolder(ctx, imageFolderPath)
-	flippedImages, flipErrChan := imgproc.FlipImages(ctx, images, errChan, imgproc.FlipBoth)
-	writeErrChan := imgproc.WriteImagesToFolder(ctx, flippedImages, flipErrChan, outputFolderPath)
+	done := make(chan struct{})
+
+	readImagesChan, readErrChan := imgproc.ReadAllImagesInFolder(ctx, done, imageFolderPath)
+	flippedImagesChan, flipErrChan := imgproc.FlipImages(ctx, done, readImagesChan, readErrChan, imgproc.FlipVertical)
+	writtenImagesChan, writeErrChan := imgproc.WriteImagesToFolder(ctx, done, flippedImagesChan, flipErrChan, outputFolderPath)
 
 	for {
 		select {
+		case img := <-writtenImagesChan:
+			if img != nil {
+				log.Println("Wrote image:", img.ToShortString())
+			}
 		case err := <-writeErrChan:
 			if err != nil {
 				log.Println("Error writing image:", err)
 			}
-		case <-ctx.Done():
+		case <-done:
 			log.Println("Done processing images")
+			close(done)
 			return
 		}
 	}
