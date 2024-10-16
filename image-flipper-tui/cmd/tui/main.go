@@ -1,20 +1,19 @@
 package main
 
 import (
-	"context"
-	imgproc "image_utils"
+	tea "github.com/charmbracelet/bubbletea"
 	"log"
 )
 
 func main() {
-	imageFolderPath, outputFolderPath := "/home/samibarbutdica/Pictures/Flipper/", "/home/samibarbutdica/Pictures/Flipper/Output/"
-	flipDir := imgproc.FlipHorizontal
-	ctx := context.Background()
-
-	successMessage, err := imgproc.RunProcessImagesPipeline(ctx, imageFolderPath, outputFolderPath, flipDir)
+	f, err := tea.LogToFile("debug.log", "debug")
 	if err != nil {
-		log.Fatalln(err)
+		log.Fatal(err)
 	}
+	defer f.Close()
 
-	log.Println(successMessage)
+	p := tea.NewProgram(NewModel(), tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		log.Fatal(err)
+	}
 }
