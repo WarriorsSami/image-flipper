@@ -5,10 +5,13 @@ go 1.23.2
 require (
 	github.com/charmbracelet/bubbletea v1.1.1
 	github.com/charmbracelet/huh v0.6.0
+	github.com/charmbracelet/huh/spinner v0.0.0-20241011224433-983a50776b31
 	github.com/charmbracelet/lipgloss v0.13.0
+	image_utils v0.0.0-00010101000000-000000000000
 )
 
 require (
+	github.com/anthonynsimon/bild v0.14.0 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/catppuccin/go v0.2.0 // indirect
@@ -27,6 +30,7 @@ require (
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/muesli/termenv v0.15.3-0.20240618155329-98d742f6907a // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
+	golang.org/x/image v0.18.0 // indirect
 	golang.org/x/sync v0.8.0 // indirect
 	golang.org/x/sys v0.25.0 // indirect
 	golang.org/x/text v0.18.0 // indirect

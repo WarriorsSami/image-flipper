@@ -3,13 +3,15 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/huh/spinner"
 	"github.com/charmbracelet/lipgloss"
 	imgproc "image_utils"
+	"log"
 	"os"
 	"strings"
+	"time"
 )
 
 const maxWidth = 100
@@ -60,18 +62,12 @@ type Model struct {
 	styles *Styles
 	form   *huh.Form
 	width  int
-	// TODO: Fix the loading spinner
-	loading bool
-	spinner spinner.Model
 }
 
 func NewModel() Model {
 	m := Model{width: maxWidth}
 	m.lg = lipgloss.DefaultRenderer()
 	m.styles = NewStyles(m.lg)
-	m.loading = false
-	m.spinner = spinner.New()
-	m.spinner.Spinner = spinner.Dot
 
 	homeDir, _ := os.UserHomeDir()
 
@@ -145,19 +141,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	}
 
-	// Process the spinner
-	m.spinner, cmd = m.spinner.Update(msg)
-	cmds = append(cmds, cmd)
-
-	// If the form is completed, flip the images
 	if m.form.State == huh.StateCompleted {
-		cmds = append(cmds, m.spinner.Tick)
-		m.loading = true
-
-		if err := m.flipImages(); err != nil {
-			return m, tea.Batch(cmds...)
-		}
-
+		_ = spinner.
+			New().
+			Title("Flipping images...").
+			Action(m.flipImages).
+			Run()
 		cmds = append(cmds, tea.Quit)
 	}
 
@@ -183,7 +172,7 @@ func (m Model) View() string {
 		var status string
 		{
 			var (
-				buildInfo        = m.getBuildInfoView()
+				buildInfo        = "(None)"
 				inputFolderPath  = ""
 				outputFolderPath = ""
 				flipMode         = imgproc.FlipHorizontal
@@ -270,14 +259,6 @@ func (m Model) getFlipOutcomeView() string {
 	return fmt.Sprintf("Input Folder: %s\nOutput Folder: %s\nFlip Mode: %s\n", inputFolderPath, outputFolderPath, flipMode)
 }
 
-func (m Model) getBuildInfoView() string {
-	if m.loading {
-		return fmt.Sprintf("Processing images %s", m.spinner.View())
-	} else {
-		return ""
-	}
-}
-
 func checkIfFolderExists(folderPath string) error {
 	if _, err := imgproc.CheckIfFolderExists(folderPath); err != nil {
 		return err
@@ -286,19 +267,19 @@ func checkIfFolderExists(folderPath string) error {
 	return nil
 }
 
-func (m Model) flipImages() error {
+func (m Model) flipImages() {
+	time.Sleep(1 * time.Second)
+
 	ctx := context.Background()
 	input := m.form.GetString("inputFolderPath")
 	output := m.form.GetString("outputFolderPath")
 
 	var direction imgproc.FlipDirection
 	if err := direction.Set(m.form.GetString("flipMode")); err != nil {
-		return err
+		log.Println(err)
 	}
 
 	if _, err := imgproc.RunProcessImagesPipeline(ctx, input, output, direction); err != nil {
-		return err
+		log.Println(err)
 	}
-
-	return nil
 }
